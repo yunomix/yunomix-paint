@@ -1,0 +1,75 @@
+#c {
+    /* レイアウト上のサイズだけ指定。ここは CSS px */
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+    /* ペン操作用 */
+    display: block;
+    /* 余白除去 */
+    touch-action: none;
+    /* OSジェスチャー無効化 */
+}
+
+#toolbar {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    background: #fff8;
+    backdrop-filter: blur(4px);
+    padding: 6px 10px;
+    border-radius: 8px;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    font: 14px sans-serif;
+}
+
+#preview {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #000;
+    transform-origin: center;
+}
+
+.palette {
+    display: grid;
+    grid-template-columns: repeat(6, 32px);
+    gap: 8px;
+    padding: 8px;
+    background: #fff8;
+    border-radius: 10px;
+    width: max-content;
+    user-select: none;
+    font: 14px/1.2 system-ui, sans-serif;
+}
+
+.swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #0003;
+    outline: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.swatch[aria-checked="true"] {
+    box-shadow: 0 0 0 3px #0008 inset;
+}
+
+.swatch:focus-visible {
+    outline: 2px solid #09f;
+    outline-offset: 2px;
+}
+
+.alphactl {
+    display: inline-flex;
+    align-items: center;
+    gap: .6rem;
+    margin-top: 8px;
+}
