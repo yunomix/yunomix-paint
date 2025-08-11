@@ -1,9 +1,10 @@
 import Graphics from './Graphics.js';
 import { BrushManager } from './Brush.js';
 import AlcoholMarkerBrush from './brushes/AlcoholMarker.js';
+import Pen from './brushes/Pen.js';
 import Eraser from './brushes/Eraser.js';
 import { StrokeLog, InkDB } from './DB.js';
-import { debounce } from './Util.js';
+import { debounce, makeUUID } from './Util.js';
 
 /** @type {HTMLCanvasElement} */
 const cvs = document.getElementById('c') as HTMLCanvasElement;
@@ -20,6 +21,7 @@ let selectedAlpha = 1.0; // 初期透明度
 
 const brushManager = new BrushManager(gl);
 brushManager.registerBrush(await AlcoholMarkerBrush.create(gl, cvs));
+brushManager.registerBrush(await Pen.create(gl, cvs));
 brushManager.registerBrush(await Eraser.create(gl, cvs));
 
 let screenDirty = false;
@@ -98,7 +100,7 @@ cvs.addEventListener('pointerdown', e => {
 
     // ストローク開始
     currentStrokeLog = {
-        id: crypto.randomUUID(),
+        id: makeUUID(),
         color: selectedColor,
         alpha: selectedAlpha,
         tool : currentBrush.name,
@@ -311,6 +313,11 @@ applyColorToCache(); // 初期色を反映
 
 const penBtn = document.getElementById('penBtn') as HTMLButtonElement;
 penBtn.addEventListener('click', (e) => {
+    brushManager.useBrush('Pen');
+});
+
+const alcholMarkerBtn = document.getElementById('alcholMarkerBtn') as HTMLButtonElement;
+alcholMarkerBtn.addEventListener('click', (e) => {
     brushManager.useBrush('AlcoholMarkerBrush');
 });
 
@@ -324,12 +331,12 @@ document.addEventListener('keydown', (e) => {
         brushManager.useBrush('Eraser');
     }
     if (e.key === 'p') {
-        brushManager.useBrush('AlcoholMarkerBrush');
+        brushManager.useBrush('Pen');
     }
 });
 
 // 初期ブラシを選択
-brushManager.useBrush('AlcoholMarkerBrush');
+brushManager.useBrush('Pen');
 
 const pp = graphics.createPingPong(gl, cvs.width, cvs.height); // ★1回だけ
 
@@ -371,6 +378,9 @@ function drawBrushToTexture() {
     const [r, g, b, a] = getSelectedColor();
     graphics.enable(); // VBO 有効化
 
+    // Android 端末では、テクスチャを毎フレーム有効化しないとエラーになる
+    brushManager.getCurrentBrush()?.use();
+
     /* ---- ① 新サンプルを履歴 pts へ追加 ---- */
     while (queue.length) {
         const n = queue.shift();
@@ -409,8 +419,9 @@ function drawBrushToTexture() {
         const prevPoint = new Float32Array([prev.x, prev.y]);
         const point1 = new Float32Array([p1.x, p1.y]);
 
-        graphics.updateQuadTrapezoid(cvs, prevPoint, point1, lineWidthPrev, lineWidth1, prevAlpha, alpha1, r, g, b, a);
-        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+        const positionBuffer = graphics.updateQuadTrapezoid(cvs, prevPoint, point1, lineWidthPrev, lineWidth1, prevAlpha, alpha1, r, g, b, a);
+        brushManager.getCurrentBrush()?.uploadData(positionBuffer);
+        brushManager.getCurrentBrush()?.draw();
 
         // ★ ベジェ終点 → 次フレームの始点
         prev = p1;
@@ -449,46 +460,3 @@ async function saveDraft() {
 
 /** 保存関数を 1.5 秒デバウンスして自動保存 */
 const autoSaveDraft = debounce(() => saveDraft(), 1500);
-
-
-async function replay(strokes: StrokeLog[], speed: number, width: number, height: number ): Promise<void> {
-  // 画面サイズを固定（録画サイズになる）
-  cvs.width = width; cvs.height = height;
-
-  const t0 = performance.now();
-  let idx = 0; // 何本目のストロークか
-  let pi  = 0; // ストローク内の点インデックス
-
-  // 画面初期化（紙・レイヤの初期状態）
-  drawPaperBackground();    // ブレンドOFFで紙
-  clearInkLayer();          // もしFBO運用なら透明クリア
-
-  function frame(now) {
-    const elapsedReal = now - t0;
-    const elapsedPlay = elapsedReal * speed;      // ← 時間圧縮
-
-    // 経過時間までに“始まっているストローク”を順に進める
-    while (idx < strokes.length) {
-      const s = strokes[idx];
-      if (s.startedAt > strokes[0].startedAt + elapsedPlay) break; // まだ開始前
-
-      // このストロークの points を時間に合わせて吐き出す
-      while (pi < s.points.length &&
-             s.points[pi].t <= (elapsedPlay - (s.startedAt - strokes[0].startedAt))) {
-        // ここで“記録時と同じ”描画（台形/ベジェ）を 1 ステップ進める
-        drawStrokeStep(s, pi);
-        pi++;
-      }
-
-      if (pi >= s.points.length) { idx++; pi = 0; } // 次のストロークへ
-      else break;
-    }
-
-    // 画面合成（紙＋インクレイヤ等）
-    compositeToScreen();
-
-    if (idx < strokes.length) requestAnimationFrame(frame);
-    else onReplayFinished?.(); // 録画と連動するならここで stop
-  }
-  requestAnimationFrame(frame);
-}

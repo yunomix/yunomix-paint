@@ -60,3 +60,14 @@ export function debounce(fn, delayMs = 1500 // 1〜2 秒ゾーンのデフォル
         }, delayMs);
     };
 }
+export function makeUUID() {
+    const c = globalThis.crypto;
+    if (c && typeof c.randomUUID === "function")
+        return c.randomUUID();
+    // ここに来るのはごく稀
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+        const r = (Math.random() * 16) | 0;
+        const v = ch === "x" ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+}

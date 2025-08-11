@@ -2,9 +2,10 @@ var _a;
 import Graphics from './Graphics.js';
 import { BrushManager } from './Brush.js';
 import AlcoholMarkerBrush from './brushes/AlcoholMarker.js';
+import Pen from './brushes/Pen.js';
 import Eraser from './brushes/Eraser.js';
 import { InkDB } from './DB.js';
-import { debounce } from './Util.js';
+import { debounce, makeUUID } from './Util.js';
 /** @type {HTMLCanvasElement} */
 const cvs = document.getElementById('c');
 /** @type {WebGL2RenderingContext} */
@@ -16,6 +17,7 @@ let selectedColor = "";
 let selectedAlpha = 1.0; // 初期透明度
 const brushManager = new BrushManager(gl);
 brushManager.registerBrush(await AlcoholMarkerBrush.create(gl, cvs));
+brushManager.registerBrush(await Pen.create(gl, cvs));
 brushManager.registerBrush(await Eraser.create(gl, cvs));
 let screenDirty = false;
 function resizeCanvas() {
@@ -71,7 +73,7 @@ cvs.addEventListener('pointerdown', e => {
     lastEvt = null;
     // ストローク開始
     currentStrokeLog = {
-        id: crypto.randomUUID(),
+        id: makeUUID(),
         color: selectedColor,
         alpha: selectedAlpha,
         tool: currentBrush.name,
@@ -260,6 +262,10 @@ function applyColorToCache() {
 applyColorToCache(); // 初期色を反映
 const penBtn = document.getElementById('penBtn');
 penBtn.addEventListener('click', (e) => {
+    brushManager.useBrush('Pen');
+});
+const alcholMarkerBtn = document.getElementById('alcholMarkerBtn');
+alcholMarkerBtn.addEventListener('click', (e) => {
     brushManager.useBrush('AlcoholMarkerBrush');
 });
 const eraserBtn = document.getElementById('eraserBtn');
@@ -271,11 +277,11 @@ document.addEventListener('keydown', (e) => {
         brushManager.useBrush('Eraser');
     }
     if (e.key === 'p') {
-        brushManager.useBrush('AlcoholMarkerBrush');
+        brushManager.useBrush('Pen');
     }
 });
 // 初期ブラシを選択
-brushManager.useBrush('AlcoholMarkerBrush');
+brushManager.useBrush('Pen');
 const pp = graphics.createPingPong(gl, cvs.width, cvs.height); // ★1回だけ
 /* ------------- 60fps でまとめ描き ------------- */
 function tick() {
@@ -303,8 +309,11 @@ function tick() {
 // ループ開始
 tick();
 function drawBrushToTexture() {
+    var _a, _b, _c;
     const [r, g, b, a] = getSelectedColor();
     graphics.enable(); // VBO 有効化
+    // Android 端末では、テクスチャを毎フレーム有効化しないとエラーになる
+    (_a = brushManager.getCurrentBrush()) === null || _a === void 0 ? void 0 : _a.use();
     /* ---- ① 新サンプルを履歴 pts へ追加 ---- */
     while (queue.length) {
         const n = queue.shift();
@@ -336,8 +345,9 @@ function drawBrushToTexture() {
         }
         const prevPoint = new Float32Array([prev.x, prev.y]);
         const point1 = new Float32Array([p1.x, p1.y]);
-        graphics.updateQuadTrapezoid(cvs, prevPoint, point1, lineWidthPrev, lineWidth1, prevAlpha, alpha1, r, g, b, a);
-        gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+        const positionBuffer = graphics.updateQuadTrapezoid(cvs, prevPoint, point1, lineWidthPrev, lineWidth1, prevAlpha, alpha1, r, g, b, a);
+        (_b = brushManager.getCurrentBrush()) === null || _b === void 0 ? void 0 : _b.uploadData(positionBuffer);
+        (_c = brushManager.getCurrentBrush()) === null || _c === void 0 ? void 0 : _c.draw();
         // ★ ベジェ終点 → 次フレームの始点
         prev = p1;
     }

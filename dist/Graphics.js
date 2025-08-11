@@ -2,31 +2,29 @@ import { compileShader, linkProgram } from './Util.js';
 export default class Graphics {
     constructor(gl) {
         this.gl = gl;
-        this.vbo = gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vbo);
         this.lastNx = 0;
         this.lastNy = 0;
     }
     enable() {
-        const pos = new Float32Array([
-            0.1, 0.3, 1, 0, 0, 1, // 位置 + RGBA
-            0.3, 0.4, 0, 1, 0, 1, // 位置 + RGBA
-            0.2, 0.5, 0, 0, 1, 1, // 位置 + RGBA
-            0.6, 0.6, 1, 1, 0, 1 // 位置 + RGBA
-        ]);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vbo);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, pos, this.gl.DYNAMIC_DRAW);
-        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 24, 0); // a_pos
-        this.gl.enableVertexAttribArray(0);
-        this.gl.vertexAttribPointer(1, 4, this.gl.FLOAT, false, 24, 8); // a_col
-        this.gl.enableVertexAttribArray(1);
-        //const vettexCount = pos.length / 6; // 6 = 2 (pos) + 4 (col)
-        //gl.drawArrays(gl.TRIANGLE_FAN, 0, vettexCount);
+        // const pos = new Float32Array([
+        //     0.1, 0.3, 1, 0, 0, 1,   // 位置 + RGBA
+        //     0.3, 0.4, 0, 1, 0, 1,   // 位置 + RGBA
+        //     0.2, 0.5, 0, 0, 1, 1,   // 位置 + RGBA
+        //     0.6, 0.6, 1, 1, 0, 1    // 位置 + RGBA
+        // ]);
+        // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vbo);
+        // this.gl.bufferData(this.gl.ARRAY_BUFFER, pos, this.gl.DYNAMIC_DRAW);
+        // this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 24, 0);   // a_pos
+        // this.gl.enableVertexAttribArray(0);
+        // this.gl.vertexAttribPointer(1, 4, this.gl.FLOAT, false, 24, 8);   // a_col
+        // this.gl.enableVertexAttribArray(1);
+        // const vettexCount = pos.length / 6; // 6 = 2 (pos) + 4 (col)
+        // this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, vettexCount);
     }
     disable() {
-        this.gl.disableVertexAttribArray(0);
-        this.gl.disableVertexAttribArray(1);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
+        // this.gl.disableVertexAttribArray(0);
+        // this.gl.disableVertexAttribArray(1);
+        // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, null);
     }
     reset() {
         this.lastNx = 0;
@@ -79,12 +77,9 @@ export default class Graphics {
             b2x, b2y, r, g, b, a * alphaBottom, // 位置 + RGBA
             b1x, b1y, r, g, b, a * alphaBottom // 位置 + RGBA
         ]);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vbo);
-        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, pos);
-        this.gl.vertexAttribPointer(0, 2, this.gl.FLOAT, false, 24, 0); // a_pos
-        this.gl.vertexAttribPointer(1, 4, this.gl.FLOAT, false, 24, 8); // a_col
         this.lastNx = nx;
         this.lastNy = ny;
+        return pos;
     }
     // FBO（フレームバッファオブジェクト）を作成
     // 画面の一部をオフスクリーンで描画するために使用

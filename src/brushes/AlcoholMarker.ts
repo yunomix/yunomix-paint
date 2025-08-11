@@ -6,6 +6,7 @@ export default class AlcoholMarkerBrush implements Brush {
 
     private gl: WebGL2RenderingContext;
     private program: WebGLProgram;
+    private vbo: WebGLBuffer;
     private cvs: HTMLCanvasElement;
     private img: HTMLImageElement;
     private texture: WebGLTexture;
@@ -51,9 +52,10 @@ export default class AlcoholMarkerBrush implements Brush {
     // 呼び出し不可(create() で生成)
     private constructor(gl: WebGL2RenderingContext, cvs: HTMLCanvasElement, img: HTMLImageElement) {
         this.gl = gl;
-        const vsh = compileShader(gl, gl.VERTEX_SHADER, AlcoholMarkerBrush.vs, 'VS_PEN');
-        const fsh = compileShader(gl, gl.FRAGMENT_SHADER, AlcoholMarkerBrush.fs, 'FS_PEN');
+        const vsh = compileShader(gl, gl.VERTEX_SHADER, AlcoholMarkerBrush.vs, 'VS_AlcoholMarkerBrush');
+        const fsh = compileShader(gl, gl.FRAGMENT_SHADER, AlcoholMarkerBrush.fs, 'FS_AlcoholMarkerBrush');
         this.program = linkProgram(gl, vsh, fsh);
+        this.vbo = gl.createBuffer();
         this.cvs = cvs;
         this.img = img;
         this.texture = gl.createTexture();
@@ -72,11 +74,20 @@ export default class AlcoholMarkerBrush implements Brush {
         // this.gl.vertexAttribPointer(loc, 2, this.gl.FLOAT, false, 0, 0);
 
         this.gl.useProgram(this.program);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vbo);
 
-        //const img = await loadTexture('./paper2.jpg');
+        let posLoc = this.gl.getAttribLocation(this.program, "a_pos");
+        this.gl.vertexAttribPointer(posLoc, 2, this.gl.FLOAT, false, 24, 0);
+        this.gl.enableVertexAttribArray(posLoc);
 
+        let colLoc  = this.gl.getAttribLocation(this.program, "a_col");
+        this.gl.vertexAttribPointer(colLoc, 4, this.gl.FLOAT, false, 24, 8);
+        this.gl.enableVertexAttribArray(colLoc);
+
+        // テクスチャを有効化
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.R8, this.img.width, this.img.height, 0, this.gl.RED, this.gl.UNSIGNED_BYTE, this.img);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
@@ -106,12 +117,18 @@ export default class AlcoholMarkerBrush implements Brush {
     }
 
     uploadData(vertices: Float32Array): void {
+
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vbo);
+//        this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, vertices);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STREAM_DRAW);
+
         // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         // this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STREAM_DRAW);
     }
 
     draw(): void {
         // this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, 4);
     }
 
 }
