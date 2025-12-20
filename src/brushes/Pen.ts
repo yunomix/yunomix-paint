@@ -1,5 +1,5 @@
-import { loadTexture, compileShader, linkProgram } from '../Util.js';
-import { Brush } from '../Brush.js';
+﻿import { loadTexture, compileShader, linkProgram } from '../util.js';
+import { Brush } from '../brush.js';
 
 export default class Pen implements Brush {
     readonly name = "Pen";

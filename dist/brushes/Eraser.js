@@ -1,4 +1,4 @@
-import { compileShader, linkProgram } from '../Util.js';
+import { compileShader, linkProgram } from '../util.js';
 class Eraser {
     // 呼び出し不可(create() で生成)
     constructor(gl, cvs) {

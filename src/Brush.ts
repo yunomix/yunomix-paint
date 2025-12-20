@@ -1,10 +1,10 @@
-/**
- * Brush インターフェースは、描画に使用するブラシの基本的な機能を定義します。
- * 各ブラシは、名前、使用方法、データのアップロード、描画処理を持ちます。
- * このインターフェースを実装することで、異なる種類のブラシを作成できます。
+﻿/**
+ * Brush インターフェースは、描画ブラシの基本機能を定義します。
+ * 各ブラシは名前・使用手順・データ転送・描画処理を実装します。
+ * これにより、用途の異なるブラシを簡単に追加できます。
  */ 
 export interface Brush {
-    /** ブラシの名前 */
+    /** 繝悶Λ繧ｷ縺ｮ蜷榊燕 */
     readonly name: string;
 
     use(): void;
@@ -13,8 +13,8 @@ export interface Brush {
 }
 
 /**
- * BrushManager は、複数の Brush を管理し、現在使用中の Brush を操作するクラスです。
- * ブラシの登録、使用、データのアップロード、描画を行います。
+ * BrushManager は複数の Brush を管理し、現在のブラシを操作します。
+ * ブラシの登録、選択、頂点データの転送、描画呼び出しを担います。
  */
 export class BrushManager {
     private gl: WebGL2RenderingContext;
@@ -22,9 +22,9 @@ export class BrushManager {
     private currentBrush: Brush | null = null;
 
     /**
-     * BrushManager のコンストラクタ
+     * BrushManager のコンストラクタ。
      * 
-     * @param gl WebGL2RenderingContext - WebGL コンテキスト
+     * @param gl WebGL2RenderingContext - WebGL コンテキスト。
      */
     constructor(gl: WebGL2RenderingContext) {
         this.gl = gl;
@@ -32,18 +32,18 @@ export class BrushManager {
 
     /**
      * ブラシを登録します。
-     * @param brush Brush - 登録するブラシ
+     * @param brush Brush - 登録するブラシ。
      */
     registerBrush(brush: Brush): void {
         this.brushes.set(brush.name, brush);
     }
 
     /**
-     * 現在のブラシを指定された名前のブラシに切り替えます。
-     * ブラシが存在しない場合はエラーをスローします。
+     * 指定した名前のブラシを現在のブラシとして選択します。
+     * 指定のブラシが存在しない場合はエラーを投げます。
      * 
-     * @param name string - 使用するブラシの名前
-     * @throws Error - 指定された名前のブラシが登録されていない場合にエラーを投げます。
+     * @param name string - 使用するブラシ名。
+     * @throws Error - 登録されていない名前が指定された場合。
      */
     useBrush(name: string): void {
         const brush = this.brushes.get(name);
@@ -55,14 +55,14 @@ export class BrushManager {
     /**
      * 現在のブラシに頂点データをアップロードします。
      * 
-     * @param data Float32Array - ブラシにアップロードする頂点データ
+     * @param data Float32Array - アップロードする頂点データ。
      */
     uploadData(data: Float32Array): void {
         this.currentBrush?.uploadData(data);
     }
 
     /** 
-     * 現在のブラシを使用して描画を行います。
+     * 現在のブラシで描画します。
      * 現在のブラシが設定されていない場合は何もしません。
      */
     draw(): void {
@@ -70,9 +70,9 @@ export class BrushManager {
     }
 
     /**
-     * 現在のブラシを取得します。ブラシが設定されていない場合は null を返します。
-     * これにより、現在の描画ツールを確認できます。
-     * @returns Brush | null - 現在使用中のブラシを返します。設定されていない場合は null を返します。
+    /**
+     * 現在のブラシを取得します。
+     * @returns Brush | null - 選択中のブラシ。未設定なら null。
      */
     getCurrentBrush(): Brush | null {
         return this.currentBrush;

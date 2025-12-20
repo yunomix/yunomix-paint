@@ -1,4 +1,4 @@
-import { compileShader, linkProgram } from './Util.js';
+import { compileShader, linkProgram } from './util.js';
 export default class Graphics {
     constructor(gl) {
         this.gl = gl;

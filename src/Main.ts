@@ -1,26 +1,28 @@
-import Graphics from './Graphics.js';
-import { BrushManager } from './Brush.js';
-import AlcoholMarkerBrush from './brushes/AlcoholMarker.js';
-import Pen from './brushes/Pen.js';
-import Eraser from './brushes/Eraser.js';
-import { StrokeLog, InkDB } from './DB.js';
-import { debounce, makeUUID } from './Util.js';
+﻿import Graphics from './graphics.js';
+import { BrushManager } from './brush.js';
+import AlcoholMarkerBrush from './brushes/alcoholMarker.js';
+import WatercolorBrush from './brushes/watercolor.js';
+import Pen from './brushes/pen.js';
+import Eraser from './brushes/eraser.js';
+import { StrokeLog, InkDB } from './db.js';
+import { debounce, makeUUID } from './util.js';
 
 /** @type {HTMLCanvasElement} */
 const cvs = document.getElementById('c') as HTMLCanvasElement;
 /** @type {WebGL2RenderingContext} */
 const gl = cvs.getContext('webgl2', { preserveDrawingBuffer: true }) as WebGL2RenderingContext;
 
-/** 描画ログ（後で IndexedDB へ保存 */
+/** 描画ログを後で IndexedDB に保存するためのバッファ */
 let currentStrokeLog: StrokeLog | null = null;
-let strokes: StrokeLog[] = []; // 全体のストロークログ
+let strokes: StrokeLog[] = []; // 全体のストローク履歴
 
 
 let selectedColor = "";
-let selectedAlpha = 1.0; // 初期透明度
+let selectedAlpha = 1.0; // 初期透過度
 
 const brushManager = new BrushManager(gl);
 brushManager.registerBrush(await AlcoholMarkerBrush.create(gl, cvs));
+brushManager.registerBrush(await WatercolorBrush.create(gl, cvs));
 brushManager.registerBrush(await Pen.create(gl, cvs));
 brushManager.registerBrush(await Eraser.create(gl, cvs));
 
@@ -35,38 +37,38 @@ function resizeCanvas() {
 }
 
 resizeCanvas();
-addEventListener('resize', resizeCanvas);   // ウィンドウ拡大縮小にも対応
+addEventListener('resize', resizeCanvas);   // ウィンドウのリサイズにも対応
 
-// 画面クリア
-gl.clearColor(1, 1, 1, 1); // 背景は白
+// 逕ｻ髱｢繧ｯ繝ｪ繧｢
+gl.clearColor(1, 1, 1, 1); // 閭梧勹縺ｯ逋ｽ
 gl.clear(gl.COLOR_BUFFER_BIT);
 
 
-/* =========  Ink presenter の初期化  ========= */
+/* =========  Ink presenter の初期化 ========= */
 let inkPresenter: any = null;
 
 /* === グローバル変数 ================== */
 let prev: DrawSample | null = { x: 0, y: 0, p: 0 };
-// 描画中フラグ
+// 描画中かどうかのフラグ
 let drawing = false;
-// ベジェ曲線の滑らかさ（0–1 で曲げ具合）
+// ベジェ曲線の滑らかさ係数 (0〜1)
 const smoothness = 0.5;
-// 高頻度リスナ存在判定フラグ（RAW があればそちらだけ）
+// 高頻度リスナーが利用できるブラウザか判定
 const useRAW = 'onpointerrawupdate' in window;
 // サンプルバッファ
 type DrawSample = {
     x: number;  // Canvas ピクセル座標
     y: number;  // Canvas ピクセル座標
-    p: number;  // 筆圧 (0–1)
+    p: number;  // 筆圧 (0〜1)
 };
 const queue: DrawSample[] = [];
-// ★ ベジェ計算用の履歴バッファ（常に最新 3～4 点保持）
+// ベジェ計算用の履歴バッファ（最新 3〜4 点を保持）
 const pts: DrawSample[] = [];
 
 /* ==== 線幅 UI ==== */
 const sizeInput = document.getElementById('size') as HTMLInputElement;
 const preview = document.getElementById('preview') as HTMLSpanElement;
-let maxStroke = +sizeInput.value;            // 「筆圧1.0」のときの線幅
+let maxStroke = +sizeInput.value;            // 筆圧 1.0 時の線幅
 
 const graphics = new Graphics(gl);
 
@@ -80,7 +82,7 @@ if ('ink' in navigator && navigator.ink?.requestPresenter) {
 
 sizeInput.addEventListener('input', () => {
     maxStroke = +sizeInput.value;
-    // プレビュー丸を拡大縮小
+    // プレビュー丸のスケールを更新
     preview.style.transform = `scale(${maxStroke / 10})`;
 });
 
@@ -88,13 +90,13 @@ cvs.addEventListener('pointerdown', e => {
 
     const currentBrush = brushManager.getCurrentBrush();
     if (currentBrush === null) {
-        // ブラシが選択されていない場合は何もしない
+        // ブラシが未選択なら何もしない
         return;
     }
 
     drawing = true;
-    pts.length = 0;         // ★ 履歴リセット
-    queue.length = 0;       // ★ キューも空に
+    pts.length = 0;         // 履歴バッファをクリア
+    queue.length = 0;       // サンプルキューもクリア
     prev = null;
     lastEvt = null;
 
@@ -105,18 +107,18 @@ cvs.addEventListener('pointerdown', e => {
         alpha: selectedAlpha,
         tool : currentBrush.name,
         width: maxStroke,
-        layer: 0,   // レイヤ番号（未使用）
+        layer: 0,   // レイヤ番号（現状未使用）
         startedAt: performance.now(),
         points: []
     };
 
-    // この押し始めイベント自体を一番目の点として格納
+    // 押下イベントを最初のサンプルとして記録
     addSample(e, currentStrokeLog);
     cvs.setPointerCapture(e.pointerId);
 });
 
 if ('onpointerrawupdate' in window) {
-    // 高頻度リスナ（対応ブラウザだけ）
+    // 高頻度リスナー（対応ブラウザのみ）
     cvs.addEventListener('pointerrawupdate' as any, draw);
 } else {
     cvs.addEventListener('pointermove', draw);
@@ -125,10 +127,10 @@ if ('onpointerrawupdate' in window) {
 ['pointerup', 'pointercancel', 'lostpointercapture', 'pointerout']
     .forEach(ev => cvs.addEventListener(ev, () => {
         drawing = false;
-        graphics.reset();  // 台形の法線ベクトルをリセット
+        graphics.reset();  // 台形ノーマルをリセット
 
         if (currentStrokeLog != null) {
-            strokes.push(currentStrokeLog);        // 全体のログ配列へ確定
+            strokes.push(currentStrokeLog);        // 全体ログに追加
             currentStrokeLog = null;
             autoSaveDraft(); // 自動保存
         }
@@ -137,14 +139,14 @@ if ('onpointerrawupdate' in window) {
 let lastEvt: PointerEvent | null = null;
 
 function draw(e: PointerEvent) {
-    if (!drawing) return;                        // `buttons` で判定しない
+    if (!drawing) return;                        // buttons では判定できない
 
     if (currentStrokeLog === null) {
         console.warn('No current stroke log. Drawing ignored.');
         return;
     }
 
-    // ① このフレームに溜まっていた全サンプルを取得
+    // ① このフレームで溜まったサンプルを取得
     const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
 
     for (const ev of list) {
@@ -154,18 +156,18 @@ function draw(e: PointerEvent) {
     screenDirty = true;
 }
 
-/* ▼ addSample: PointerEvent → queue へ push */
+/* ▼ addSample: PointerEvent を queue へ追加 */
 function addSample(e: PointerEvent, stroke: StrokeLog): void {
 
     // 筆圧を決定
     const pressure = (e.pointerType === 'pen') ? e.pressure : 0.5;
     //console.log(`pressure: ${pressure}`);
 
-    // 後段で使いやすいシンプルなオブジェクトにして queue へ
+    // 後段で使いやすい形にして queue へ積む
     queue.push({
         x: e.offsetX,
         y: e.offsetY,
-        p: pressure               // 筆圧 (0–1)
+        p: pressure               // 遲・悸 (0窶・)
     });
 
     // t = ストローク開始からの経過 ms
@@ -179,7 +181,7 @@ function addSample(e: PointerEvent, stroke: StrokeLog): void {
     });
 
 
-    // Ink API で使う“最新の生イベント”を保持
+    // Ink API で使う最新の生イベントを保持
     if (inkPresenter && e.pointerType === 'pen' && e.isTrusted) {
         // rAF 中に 1 回だけ trail 更新に使う
         lastEvt = e;
@@ -191,7 +193,7 @@ const saveBtn = document.getElementById('saveBtn') as HTMLButtonElement;
 saveBtn.addEventListener('click', savePng);
 
 function savePng() {
-    /* blob 化（モダンブラウザはこれで十分） */
+    /* blob 化（モダンブラウザはこれで十分）*/
     if (cvs.toBlob) {
         cvs.toBlob(blob => {
             if (blob) triggerDownload(blob);
@@ -199,9 +201,9 @@ function savePng() {
         return;
     }
 
-    /* 古い Safari 用フォールバック（toBlob 未実装） */
+    /* 古い Safari 用フォールバック（toBlob 未実装）*/
     const dataURL = cvs.toDataURL('image/png');
-    // dataURL → blob 化してから download するとメモリ効率◎
+    // dataURL から blob を作ってダウンロードするとメモリ効率が良い
     fetch(dataURL)
         .then(res => res.blob())
         .then(triggerDownload);
@@ -212,31 +214,31 @@ function triggerDownload(blob: Blob): void {
     const a = document.createElement('a');
     a.href = url;
     a.download = `drawing-${new Date().toISOString().slice(0, 10)}.png`;
-    a.click();                 // 自動で保存ダイアログ or 即ダウンロード
-    URL.revokeObjectURL(url);  // メモリ解放
+    a.click();                 // 保存ダイアログを開く or 即ダウンロード
+    URL.revokeObjectURL(url);  // Object URL を破棄
 }
 
 function toNDC(x: number, y: number): [number, number] {
     return [
-        (x / cvs.clientWidth) * 2 - 1,   // ← clientWidth は CSS px
+        (x / cvs.clientWidth) * 2 - 1,   // clientWidth は CSS px
         -(y / cvs.clientHeight) * 2 + 1
     ];
 }
 
 
-// ====== 1) パレット定義（12色） ======
+// ====== 1) パレット定義（全12色） ======
 const COLORS = [
     { name: '白', hex: '#FFFFFF' }, { name: '黒', hex: '#000000' },
-    { name: '赤', hex: '#EA3323' }, { name: 'だいだい', hex: '#FF8A00' },
+    { name: '赤', hex: '#EA3323' }, { name: '橙', hex: '#FF8A00' },
     { name: '黄', hex: '#FFD400' }, { name: '黄緑', hex: '#9CCC65' },
     { name: '緑', hex: '#2E7D32' }, { name: '水色', hex: '#4FC3F7' },
     { name: '青', hex: '#1E88E5' }, { name: '紫', hex: '#8E24AA' },
     { name: '茶', hex: '#8D6E63' }, { name: '桃', hex: '#F48FB1' },
 ];
 
-// ====== 2) DOM 生成 ======
+// ====== 2) DOM 逕滓・ ======
 const palette = document.getElementById('palette') as HTMLDivElement;
-let selectedIdx = 2; // 初期色：赤
+let selectedIdx = 2; // 初期色は赤
 COLORS.forEach((c, i) => {
     const b = document.createElement('button');
     b.className = 'swatch';
@@ -264,22 +266,22 @@ palette.addEventListener('keydown', e => {
     else if (e.key === 'ArrowLeft') i = (i - 1 + n) % n;
     else if (e.key === 'ArrowDown') i = Math.min(i + cols, n - 1);
     else if (e.key === 'ArrowUp') i = Math.max(i - cols, 0);
-    else if (e.key === ' ' || e.key === 'Enter') { /* 選択トグル */ }
+    else if (e.key === ' ' || e.key === 'Enter') { /* 驕ｸ謚槭ヨ繧ｰ繝ｫ */ }
     else return;
     e.preventDefault();
     selectColor(i);
     (palette.children[i] as HTMLElement).focus();
 });
 
-// ====== 3) 透明度（筆の濃さ） ======
+// ====== 3) 透明度と筆圧の連動 ======
 const alphaEl = document.getElementById('alpha') as HTMLInputElement;
 const alphaVal = document.getElementById('alphaVal') as HTMLSpanElement;
 alphaEl.addEventListener('input', () => {
     alphaVal.textContent = (+alphaEl.value).toFixed(2);
-    applyColorToCache(); // αのみ更新
+    applyColorToCache(); // α のみ更新
 });
 
-// ====== 4) 色選択と WebGL への反映 ======
+// ====== 4) 濶ｲ驕ｸ謚槭→ WebGL 縺ｸ縺ｮ蜿肴丐 ======
 function selectColor(i: number) {
     palette.querySelectorAll('.swatch').forEach((el, idx) => {
         el.setAttribute('aria-checked', idx === i ? 'true' : 'false');
@@ -288,7 +290,7 @@ function selectColor(i: number) {
     applyColorToCache();
 }
 
-// hex → [0..1] RGB
+// hex 竊・[0..1] RGB
 function hexToRgb01(hex: string): [number, number, number] {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return m ? [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255] : [0, 0, 0];
@@ -299,8 +301,8 @@ function getSelectedColor() {
     const a = +alphaEl.value;
 
     //gl.useProgram(program);
-    // アルコールマーカー風（減法合成）シェーダ前提：
-    // FS 側で RGB→CMY を行うので、ここは普通の RGB/α を渡す
+    // アルコールマーカー風の減法合成を想定したシェーダ
+    // FS 側で RGB→CMY に変換するので、ここでは通常の RGBA を渡す
     //gl.uniform4f(u_rgbA, r, g, b, a);
     return [r, g, b, a];
 }
@@ -321,6 +323,11 @@ alcholMarkerBtn.addEventListener('click', (e) => {
     brushManager.useBrush('AlcoholMarkerBrush');
 });
 
+const watercolorBtn = document.getElementById('watercolorBtn') as HTMLButtonElement;
+watercolorBtn.addEventListener('click', (e) => {
+    brushManager.useBrush('WatercolorBrush');
+});
+
 const eraserBtn = document.getElementById('eraserBtn') as HTMLButtonElement;
 eraserBtn.addEventListener('click', (e) => {
     brushManager.useBrush('Eraser');
@@ -330,6 +337,9 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'e') {
         brushManager.useBrush('Eraser');
     }
+    if (e.key === 'w') {
+        brushManager.useBrush('WatercolorBrush');
+    }
     if (e.key === 'p') {
         brushManager.useBrush('Pen');
     }
@@ -338,7 +348,7 @@ document.addEventListener('keydown', (e) => {
 // 初期ブラシを選択
 brushManager.useBrush('Pen');
 
-const pp = graphics.createPingPong(gl, cvs.width, cvs.height); // ★1回だけ
+const pp = graphics.createPingPong(gl, cvs.width, cvs.height); // 笘・蝗槭□縺・
 
 
 
@@ -350,21 +360,21 @@ function tick() {
         return;
     }
 
-    // 1) 今フレームの入力（筆/消しなど）を write 側に描く
+    // 1) 今フレームの入力（加筆や消し）を write 側へ描画
     // beginFBO(gl, pp.write);
     // gl.viewport(0, 0, pp.write.width, pp.write.height);
-    //gl.clearColor(0, 0, 0, 0);                // 透明クリア（必要なら）
+    //gl.clearColor(0, 0, 0, 0);                // 透過でクリアしたい場合に使用
     //gl.clear(gl.COLOR_BUFFER_BIT);
-    drawBrushToTexture();                   // あなたの筆ストローク
+    drawBrushToTexture();                   // 今回のストロークを描画
 
-    // // 2) 合成パス： read(前フレーム) と write を使って新しい結果を作る
+    // // 2) 合成パス（read と write を使って新しい結果を作る）
     // beginFBO(gl, pp.read);
     // runCompositePass(pp.read.tex, pp.write.tex);
 
     // // 3) 次フレームに備えて役割を入れ替え
     // pp.swap();
 
-    // // 4) 画面表示（デフォルトFBO）
+    // // 4) 画面表示（デフォルト FBO）
     // beginFBO(gl, null);
     // drawFullscreenQuad(pp.read.tex);
 
@@ -376,22 +386,22 @@ tick();
 
 function drawBrushToTexture() {
     const [r, g, b, a] = getSelectedColor();
-    graphics.enable(); // VBO 有効化
+    graphics.enable(); // VBO 譛牙柑蛹・
 
-    // Android 端末では、テクスチャを毎フレーム有効化しないとエラーになる
+    // Android 端末ではテクスチャを毎フレーム有効化しないとエラーになる
     brushManager.getCurrentBrush()?.use();
 
-    /* ---- ① 新サンプルを履歴 pts へ追加 ---- */
+    /* ---- ① 新しいサンプルを履歴 pts へ追加 ---- */
     while (queue.length) {
         const n = queue.shift();
         if (n !== undefined) {
             pts.push(n);
         }
-        if (pts.length > 4) pts.shift();   // 古すぎる点は捨て、常に 4 点以下
+        if (pts.length > 4) pts.shift();   // 古い点を捨て、最大 4 点に保つ
     }
 
     if (prev == null) {
-        // ペン先の初期位置だけ記憶して次フレームへ
+        // ペン先の初期位置だけ記録して次フレームへ
         prev = pts[0];
     }
 
@@ -402,7 +412,7 @@ function drawBrushToTexture() {
     if (pts.length >= 2) {
         const [p1, p2] = pts.slice(-2);
 
-        // 線幅は p2 の筆圧を使用（中央付近が最も太く見える）
+        // 線幅は p2 の筆圧を使う（中央付近が最も太く見えるため）
         lineWidthPrev = maxStroke * prev.p;
         lineWidth1 = maxStroke * p1.p;
 
@@ -423,11 +433,11 @@ function drawBrushToTexture() {
         brushManager.getCurrentBrush()?.uploadData(positionBuffer);
         brushManager.getCurrentBrush()?.draw();
 
-        // ★ ベジェ終点 → 次フレームの始点
+        // ベジェ終点を次フレームの始点にする
         prev = p1;
     }
 
-    // Ink API 併用なら 1 フレーム 1 回で OK
+    // Ink API 併用時は 1 フレーム 1 回で OK
     if (inkPresenter && lastEvt && drawing && lineWidth1 > 0) {
         const colorStr = `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a * alpha1})`;
         inkPresenter.updateInkTrailStartPoint(
@@ -450,13 +460,19 @@ async function saveDraft() {
     console.log('Saving draft...');
     const db = await InkDB.get();
 
-    // ストロークログ保存
+    // ストロークログを保存
     await db.saveDraft({
-        strokes: [],                  // → ストロークログ配列
-        pngBlob: new Blob(),          // → PNG Blob
+        strokes: [],                  // ストロークログの配列
+        pngBlob: new Blob(),          // PNG の Blob
         updated: Date.now()
     });
 }
 
-/** 保存関数を 1.5 秒デバウンスして自動保存 */
+/** 保存関数は 1.5 秒ごとにデバウンスして自動保存 */
 const autoSaveDraft = debounce(() => saveDraft(), 1500);
+
+
+
+
+
+

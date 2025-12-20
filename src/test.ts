@@ -1,9 +1,9 @@
-// import { BrushManager } from './Brush.js';
+﻿// import { BrushManager } from './Brush.js';
 // import AlcoholMarkerBrush from './brushes/AlcoholMarker.js';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 
-// 1) コンテキストは alpha:false 推奨（透明合成で消えて見える事故を防止）
+// 1) コンテキストは alpha:false 推奨。透過合成で消える事故を防止
 //const gl = (canvas.getContext("webgl", { alpha: false, antialias: true }) ||
 //            canvas.getContext("experimental-webgl")) as WebGLRenderingContext;
 
@@ -24,14 +24,14 @@ function fit() {
 }
 window.addEventListener("resize", fit); fit();
 
-// 3) 単色描画シェーダ（precision を必ず宣言！）
+// 3) 単色描画シェーダ。precision を明示宣言
 const vs = `
 attribute vec2 aPos;
 void main(){
     gl_Position = vec4(aPos, 0.0, 1.0);
 }`;
 const fs = `
-// ★ Android/WebGL1はフラグメントに precision 宣言が必須
+// ※ Android/WebGL1 はフラグメントで precision 宣言が必須
 precision mediump float;
 void main(){
     gl_FragColor = vec4(0.7,0.5,0.0,1.0);

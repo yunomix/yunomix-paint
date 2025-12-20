@@ -1,5 +1,5 @@
-import { loadTexture, compileShader, linkProgram } from '../Util.js';
-import { Brush } from '../Brush.js';
+﻿import { loadTexture, compileShader, linkProgram } from '../util.js';
+import { Brush } from '../brush.js';
 
 export default class AlcoholMarkerBrush implements Brush {
     readonly name = "AlcoholMarkerBrush";
@@ -24,10 +24,10 @@ export default class AlcoholMarkerBrush implements Brush {
     precision mediump float;
 
     in vec4 v_col; 
-    uniform sampler2D u_paper;    // 紙/ノイズテクスチャ
-    uniform vec2  u_resolution;   // 画面解像度（CSS px基準）
+    uniform sampler2D u_paper;    // 紙ノイズテクスチャ
+    uniform vec2  u_resolution;   // 画面解像度（CSS px 基準）
     uniform float u_texScale;     // 紙目の縮尺
-    uniform float u_grain;        // 粒状感(0..1) 
+    uniform float u_grain;        // 粒状感 (0..1)
 
     out vec4 o;
 
@@ -36,11 +36,11 @@ export default class AlcoholMarkerBrush implements Brush {
     vec2 uv = (gl_FragCoord.xy / u_resolution) * u_texScale;
     float paper = texture(u_paper, uv).r;        // 0..1
 
-    // 減法: RGB→CMY（インク量）
+    // 減法 RGB→CMY でインク量を表現
     vec3 cmy = 1.0 - v_col.rgb;                 // 紙を減らす量
 
-    // 紙のザラつきでインク量を減衰
-    // paper=1 で無加工、paperが暗いところは少しだけ薄まる
+    // 紙のざらつきでインク量を減衰
+    // paper=1 で無加工、paper が暗いところは少し薄まる
     float grain = mix(1.0 - u_grain, 1.0, paper);
     cmy *= grain;
 
@@ -93,26 +93,26 @@ export default class AlcoholMarkerBrush implements Brush {
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.REPEAT);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.REPEAT);
 
-        // 解像度/スケール用ユニフォーム
+        // 解像度とスケール用ユニフォーム
         const uRes = this.gl.getUniformLocation(this.program, "u_resolution");
         const uTexScale = this.gl.getUniformLocation(this.program, "u_texScale");
         const uPaper = this.gl.getUniformLocation(this.program, "u_paper");
         const uGrain = this.gl.getUniformLocation(this.program, "u_grain");
 
         this.gl.uniform2f(uRes, this.cvs.clientWidth, this.cvs.clientHeight);
-        this.gl.uniform1f(uTexScale, 1.0);         // 倍率（2〜6で好みに調整）
-        this.gl.uniform1i(uPaper, 0);              // texture unit 0 をバインド予定
-        this.gl.uniform1f(uGrain, 0.5); // 粒状感（0〜1、0.35 くらいが適度）
+        this.gl.uniform1f(uTexScale, 1.0);         // 倍率は必要に応じて調整
+        this.gl.uniform1i(uPaper, 0);              // texture unit 0 を使用
+        this.gl.uniform1f(uGrain, 0.5);            // 粒状感（0.35〜0.5 くらいが適度）
 
         // ブレンド設定
-        // アルコールマーカーのような描画をする
+        // アルコールマーカーのような描画を狙う
         this.gl.enable(this.gl.BLEND);
         this.gl.blendEquation(this.gl.FUNC_ADD);
         this.gl.blendFuncSeparate(
             this.gl.ZERO,               // Sf = 0
-            this.gl.ONE_MINUS_SRC_COLOR,// Df = 1‑src.rgb   → 減法!
-            this.gl.ONE,                // α は足し算 (src α)
-            this.gl.ONE_MINUS_SRC_ALPHA //   ＋ 紙のαも残す
+            this.gl.ONE_MINUS_SRC_COLOR,// Df = 1 - src.rgb（減法合成）
+            this.gl.ONE,                // α は加算 (src α)
+            this.gl.ONE_MINUS_SRC_ALPHA //    紙側の α も残す
         );
     }
 

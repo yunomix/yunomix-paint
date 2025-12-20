@@ -1,4 +1,4 @@
-import { loadTexture, compileShader, linkProgram } from '../Util.js';
+import { loadTexture, compileShader, linkProgram } from '../util.js';
 class AlcoholMarkerBrush {
     // 呼び出し不可(create() で生成)
     constructor(gl, cvs, img) {

@@ -1,5 +1,5 @@
-/* -----------------------------------------------
- * 型定義（必要な部分だけ）  
+﻿/* -----------------------------------------------
+ * 型定義など細かい部分は別ファイルへ切り出し
  * ---------------------------------------------*/
 export interface Point {
     x: number; y: number; p: number; t: number;
@@ -17,20 +17,20 @@ export interface StrokeLog {
 }
 export interface DraftPayload {
     strokes: StrokeLog[];
-    pngBlob: Blob;          // レイヤ or サムネイル
+    pngBlob: Blob;          // レイヤーやサムネイル用の PNG
     updated: number;        // epoch ms
 }
 
 /* -----------------------------------------------
- * IndexedDB ラッパクラス  
+ * IndexedDB ラッパークラス
  * ---------------------------------------------*/
 export class InkDB {
-    private db!: IDBDatabase;               // 実 DB
+    private db!: IDBDatabase;               // 実際の IDB
     static readonly DB_NAME = 'yunomi-paint'; // DB 名
     static readonly STORE = 'projects';
     static readonly DB_VER = 1;
 
-    /* ─── Singleton パターン（optional） ─── */
+    /* ─── Singleton パターン（optional）─── */
     private static _instance: InkDB | null = null;
     static async get(): Promise<InkDB> {
         if (!InkDB._instance) {
@@ -61,14 +61,14 @@ export class InkDB {
 
     /* ---------- 公開 API ---------- */
 
-    /** 下書き保存（上書き）*/
+    /** 下書きを保存（上書き）*/
     async saveDraft(data: DraftPayload, key = 'draft'): Promise<void> {
         const tx = this.db.transaction(InkDB.STORE, 'readwrite');
         tx.objectStore(InkDB.STORE).put(data, key);
         await tx.oncomplete;
     }
 
-    /** 下書きを読む（なければ null）*/
+    /** 下書きを読み込む。存在しなければ null */
     loadDraft(key = 'draft'): Promise<DraftPayload | null> {
         return new Promise(res => {
             const req = this.db
@@ -79,7 +79,7 @@ export class InkDB {
         });
     }
 
-    /** 任意キーで保存（プロジェクト名など） */
+    /** 任意キーで保存（プロジェクト名など）*/
     async save(key: string, data: DraftPayload) {
         return this.saveDraft(data, key);
     }

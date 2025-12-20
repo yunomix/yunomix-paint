@@ -1,4 +1,4 @@
-import { compileShader, linkProgram } from './Util.js';
+﻿import { compileShader, linkProgram } from './util.js';
 
 export default class Graphics {
     private gl: WebGL2RenderingContext;
@@ -43,22 +43,22 @@ export default class Graphics {
 
     /**
      * 4 パラメータで台形を VBO にセットする
-     * @param {number[]} mTop    [x, y] 上底の中点（Canvas ピクセル座標）
-     * @param {number[]} mBottom [x, y] 下底の中点（同上）
-     * @param {number}   topLen  上底の長さ（px）
-     * @param {number}   botLen  下底の長さ（px）
+     * @param {number[]} mTop    [x, y] 上辺の中点（Canvas ピクセル座標）
+     * @param {number[]} mBottom [x, y] 下辺の中点（同上）
+     * @param {number}   topLen  上辺の長さ（px）
+     * @param {number}   botLen  下辺の長さ（px）
      */
     updateQuadTrapezoid(cvs: HTMLCanvasElement, mTop: Float32Array<ArrayBuffer>, mBottom: Float32Array<ArrayBuffer>, topLen: number, botLen: number, alphaTop: number, alphaBottom: number,
         r: number, g: number, b: number, a: number): Float32Array {
-        const [mx1, my1] = mTop;         // 上底中点
-        const [mx2, my2] = mBottom;      // 下底中点
+        const [mx1, my1] = mTop;         // 荳雁ｺ穂ｸｭ轤ｹ
+        const [mx2, my2] = mBottom;      // 荳句ｺ穂ｸｭ轤ｹ
 
-        /* 1. ①②を結ぶベクトル v = mBottom - mTop */
+        /* 1. 2 点を結ぶベクトル v = mBottom - mTop */
         const vx = mx2 - mx1;
         const vy = my2 - my1;
 
         /* 2. v に直角な単位ベクトル n = (-vy, vx) / |v| */
-        const mag = Math.hypot(vx, vy) || 1;        // 0 で割らない保険
+        const mag = Math.hypot(vx, vy) || 1;        // 0 で割らないように
         const nx = -vy / mag;
         const ny = vx / mag;
 
@@ -67,13 +67,13 @@ export default class Graphics {
             this.lastNy = ny;
         }
 
-        /* 3. n を各半分の長さだけ伸ばして 4 頂点を計算 */
+        /* 3. n を各半辺の長さだけ伸ばして 4 頂点を計算 */
         const hx = this.lastNx * (topLen * 0.5);             // halfTop
         const hy = this.lastNy * (topLen * 0.5);
         const kx = nx * (botLen * 0.5);             // halfBottom
         const ky = ny * (botLen * 0.5);
 
-        // 頂点順：T1→T2→B2→B1（TRIANGLE_FAN 用）
+        // 頂点順は T1→T2→B2→B1（TRIANGLE_FAN 用）
         const T1: [number, number] = [mx1 + hx, my1 + hy];
         const T2: [number, number] = [mx1 - hx, my1 - hy];
         const B2: [number, number] = [mx2 - kx, my2 - ky];
@@ -89,10 +89,10 @@ export default class Graphics {
         const [b2x, b2y] = toNDC(...B2);
         const [b1x, b1y] = toNDC(...B1);
 
-        /* 5. 既存 VBO に詰め替え（位置だけ：2float × 4 頂点） */
+        /* 5. VBO に詰め替え（位置 + RGBA）*/
         const pos = new Float32Array([
-            t1x, t1y, r, g, b, a * alphaTop,   // 位置 + RGBA
-            t2x, t2y, r, g, b, a * alphaTop,   // 位置 + RGBA
+            t1x, t1y, r, g, b, a * alphaTop,       // 位置 + RGBA
+            t2x, t2y, r, g, b, a * alphaTop,       // 位置 + RGBA
             b2x, b2y, r, g, b, a * alphaBottom,   // 位置 + RGBA
             b1x, b1y, r, g, b, a * alphaBottom    // 位置 + RGBA
         ]);
@@ -123,14 +123,14 @@ export default class Graphics {
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
             gl.TEXTURE_2D, tex, 0);
 
-        // 3) 完全性チェック
+        // 3) 完成性チェック
         const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
         if (status !== gl.FRAMEBUFFER_COMPLETE) {
             console.error('FBO incomplete:', status.toString(16));
             throw new Error('Framebuffer is incomplete');
         }
 
-        // 4) 後片付け（バインド解除）
+        // 4) 後片付け（バインド解除など）
         gl.bindTexture(gl.TEXTURE_2D, null);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         return { fbo, tex, width, height };
@@ -138,7 +138,7 @@ export default class Graphics {
 
     // FBO を開始するためのヘルパー関数
     // `fb` が null の場合は画面を使用
-    // `fb` が指定されている場合はその FBO を使用
+    // `fb` が指定された場合はその FBO を使用
     beginFBO(gl: WebGL2RenderingContext, fb: { fbo: WebGLFramebuffer, width: number, height: number } | null) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fb ? fb.fbo : null);
         gl.viewport(0, 0, fb ? fb.width : gl.canvas.width, fb ? fb.height : gl.canvas.height);
@@ -160,7 +160,7 @@ export default class Graphics {
         this.gl.enableVertexAttribArray(0);
     }
 
-    // テクスチャを1枚描くパス
+    // テクスチャを 1 枚描くパス
     drawFullscreenQuad(tex: WebGLTexture) {
 
         const vs = `#version 300 es
@@ -196,7 +196,7 @@ export default class Graphics {
         this.gl.uniform1i(u_tex, 0);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
 
-        // ブレンドoff
+        // ブレンド OFF
         this.gl.disable(this.gl.BLEND);
     }
 
@@ -205,8 +205,8 @@ export default class Graphics {
         const B = this.createFBO(gl, w, h);
         let read = A, write = B;
         return {
-            get read() { return read; },   // 読み取り元（過去フレーム）
-            get write() { return write; },   // 書き込み先（今フレーム）
+            get read() { return read; },   // 読み取り側（過去フレーム）
+            get write() { return write; },   // 書き込み側（今フレーム）
             swap() {
                 const t = read;
                 read = write;

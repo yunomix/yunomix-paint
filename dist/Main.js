@@ -1,11 +1,11 @@
 var _a;
-import Graphics from './Graphics.js';
-import { BrushManager } from './Brush.js';
-import AlcoholMarkerBrush from './brushes/AlcoholMarker.js';
-import Pen from './brushes/Pen.js';
-import Eraser from './brushes/Eraser.js';
-import { InkDB } from './DB.js';
-import { debounce, makeUUID } from './Util.js';
+import Graphics from './graphics.js';
+import { BrushManager } from './brush.js';
+import AlcoholMarkerBrush from './brushes/alcoholMarker.js';
+import Pen from './brushes/pen.js';
+import Eraser from './brushes/eraser.js';
+import { InkDB } from './db.js';
+import { debounce, makeUUID } from './util.js';
 /** @type {HTMLCanvasElement} */
 const cvs = document.getElementById('c');
 /** @type {WebGL2RenderingContext} */
