@@ -5,7 +5,8 @@ import WatercolorBrush from './brushes/watercolor.js';
 import Pen from './brushes/Pen.js';
 import Eraser from './brushes/Eraser.js';
 import { StrokeLog, InkDB } from './DB.js';
-import { compileShader, debounce, linkProgram, makeUUID } from './Util.js';
+import { debounce, makeUUID } from './Util.js';
+import { StrokeTileCacheManager } from './StrokeTileCache.js';
 
 /** @type {HTMLCanvasElement} */
 const cvs = document.getElementById('c') as HTMLCanvasElement;
@@ -19,29 +20,6 @@ let saveInFlight: Promise<void> | null = null;
 let resizeRestoreInFlight = false;
 let resizeRestorePending = false;
 let undoInFlight = false;
-
-type TileSnapshot = {
-    cssX: number;
-    cssY: number;
-    cssWidth: number;
-    cssHeight: number;
-    pixels: Uint8Array;
-    pixelWidth: number;
-    pixelHeight: number;
-    pixelX: number;
-    pixelY: number;
-};
-
-type StrokeTileCache = {
-    canvasWidth: number;
-    canvasHeight: number;
-    tiles: Map<string, TileSnapshot>;
-};
-
-const TILE_SIZE_CSS = 96;
-const MAX_CACHED_STROKES = 24;
-let currentStrokeTileCache: StrokeTileCache | null = null;
-let strokeTileCaches: Array<StrokeTileCache | null> = [];
 
 
 let selectedColor = "";
@@ -97,8 +75,7 @@ const preview = document.getElementById('preview') as HTMLSpanElement;
 let maxStroke = +sizeInput.value;            // 筆圧 1.0 時の線幅
 
 const graphics = new Graphics(gl);
-const tileRestoreProgram = createTileRestoreProgram();
-const tileRestoreVbo = gl.createBuffer();
+const tileCacheManager = new StrokeTileCacheManager(gl, cvs, { tileSizeCss: 96, maxCachedStrokes: 24 });
 
 
 if ('ink' in navigator && navigator.ink?.requestPresenter) {
@@ -139,11 +116,7 @@ cvs.addEventListener('pointerdown', e => {
         startedAt: performance.now(),
         points: []
     };
-    currentStrokeTileCache = {
-        canvasWidth: cvs.width,
-        canvasHeight: cvs.height,
-        tiles: new Map()
-    };
+    tileCacheManager.beginStroke();
 
     // 押下イベントを最初のサンプルとして記録
     addSample(e, currentStrokeLog);
@@ -177,16 +150,11 @@ function finalizeCurrentStroke(): boolean {
 
     if (currentStrokeLog != null) {
         strokes.push(currentStrokeLog);        // 全体ログに追加
-        strokeTileCaches.push(currentStrokeTileCache);
-        const staleIndex = strokeTileCaches.length - MAX_CACHED_STROKES - 1;
-        if (staleIndex >= 0) {
-            strokeTileCaches[staleIndex] = null;
-        }
+        tileCacheManager.commitStroke();
         currentStrokeLog = null;
-        currentStrokeTileCache = null;
         return true;
     }
-    currentStrokeTileCache = null;
+    tileCacheManager.discardCurrentStroke();
     return false;
 }
 
@@ -198,7 +166,7 @@ function discardCurrentStroke() {
     prev = null;
     lastEvt = null;
     currentStrokeLog = null;
-    currentStrokeTileCache = null;
+    tileCacheManager.discardCurrentStroke();
 }
 
 function draw(e: PointerEvent) {
@@ -426,8 +394,7 @@ async function restoreUndoStateFromIndexedDB(targetLength: number): Promise<bool
         }
 
         strokes = draft.strokes.slice(0, targetLength).map(cloneStrokeLog);
-        strokeTileCaches = new Array(strokes.length).fill(null);
-        currentStrokeTileCache = null;
+        tileCacheManager.resetHistory(strokes.length);
         replayStrokes(strokes);
         return true;
     } catch (error) {
@@ -454,12 +421,12 @@ async function undoLastStroke(): Promise<void> {
             }
 
             strokes.pop();
-            const cache = strokeTileCaches.pop() ?? null;
-            const restoredWithCache = cache != null && restoreFromTileCache(cache);
+            const cache = tileCacheManager.popLatestCache();
+            const restoredWithCache = cache != null && tileCacheManager.restoreFromCache(cache);
             if (!restoredWithCache) {
                 const restored = await restoreUndoStateFromIndexedDB(strokes.length);
                 if (!restored) {
-                    strokeTileCaches = new Array(strokes.length).fill(null);
+                    tileCacheManager.resetHistory(strokes.length);
                     replayStrokes(strokes);
                 }
             }
@@ -564,7 +531,7 @@ function drawBrushToTexture() {
         const prevPoint = new Float32Array([prev.x, prev.y]);
         const point1 = new Float32Array([p1.x, p1.y]);
 
-        captureTilesForSegment(prev, p1, lineWidthPrev, lineWidth1);
+        tileCacheManager.captureSegment(prev, p1, lineWidthPrev, lineWidth1);
         const positionBuffer = graphics.updateQuadTrapezoid(cvs, prevPoint, point1, lineWidthPrev, lineWidth1, prevAlpha, alpha1, r, g, b, a);
         brushManager.getCurrentBrush()?.uploadData(positionBuffer);
         brushManager.getCurrentBrush()?.draw();
@@ -590,171 +557,6 @@ function drawBrushToTexture() {
 
 function runCompositePass() {
 
-}
-
-function createTileRestoreProgram(): WebGLProgram {
-    const vs = `#version 300 es
-    in vec2 a_pos;
-    in vec2 a_uv;
-    out vec2 v_uv;
-    void main() {
-        v_uv = a_uv;
-        gl_Position = vec4(a_pos, 0.0, 1.0);
-    }`;
-    const fs = `#version 300 es
-    precision mediump float;
-    in vec2 v_uv;
-    uniform sampler2D u_tex;
-    out vec4 o;
-    void main() {
-        o = texture(u_tex, v_uv);
-    }`;
-
-    const vsh = compileShader(gl, gl.VERTEX_SHADER, vs, 'VS_TileRestore');
-    const fsh = compileShader(gl, gl.FRAGMENT_SHADER, fs, 'FS_TileRestore');
-    return linkProgram(gl, vsh, fsh);
-}
-
-function captureTilesForSegment(prevPoint: DrawSample, currPoint: DrawSample, prevWidth: number, currWidth: number) {
-    const cache = currentStrokeTileCache;
-    if (cache == null || cache.canvasWidth !== cvs.width || cache.canvasHeight !== cvs.height) {
-        return;
-    }
-    if (cvs.clientWidth <= 0 || cvs.clientHeight <= 0) {
-        return;
-    }
-
-    const halfWidth = Math.max(prevWidth, currWidth) * 0.5 + 2;
-    const minX = Math.max(0, Math.min(prevPoint.x, currPoint.x) - halfWidth);
-    const minY = Math.max(0, Math.min(prevPoint.y, currPoint.y) - halfWidth);
-    const maxX = Math.min(cvs.clientWidth, Math.max(prevPoint.x, currPoint.x) + halfWidth);
-    const maxY = Math.min(cvs.clientHeight, Math.max(prevPoint.y, currPoint.y) + halfWidth);
-
-    const startTx = Math.floor(minX / TILE_SIZE_CSS);
-    const endTx = Math.floor(Math.max(0, maxX - 1) / TILE_SIZE_CSS);
-    const startTy = Math.floor(minY / TILE_SIZE_CSS);
-    const endTy = Math.floor(Math.max(0, maxY - 1) / TILE_SIZE_CSS);
-
-    for (let ty = startTy; ty <= endTy; ty++) {
-        for (let tx = startTx; tx <= endTx; tx++) {
-            const key = `${tx}:${ty}`;
-            if (cache.tiles.has(key)) {
-                continue;
-            }
-            const snapshot = readTileSnapshot(tx, ty);
-            if (snapshot != null) {
-                cache.tiles.set(key, snapshot);
-            }
-        }
-    }
-}
-
-function readTileSnapshot(tx: number, ty: number): TileSnapshot | null {
-    const cssX = tx * TILE_SIZE_CSS;
-    const cssY = ty * TILE_SIZE_CSS;
-    const cssWidth = Math.max(0, Math.min(TILE_SIZE_CSS, cvs.clientWidth - cssX));
-    const cssHeight = Math.max(0, Math.min(TILE_SIZE_CSS, cvs.clientHeight - cssY));
-    if (cssWidth === 0 || cssHeight === 0) {
-        return null;
-    }
-
-    const pxScaleX = cvs.width / cvs.clientWidth;
-    const pxScaleY = cvs.height / cvs.clientHeight;
-    const pixelX = Math.floor(cssX * pxScaleX);
-    const pixelTop = Math.floor(cssY * pxScaleY);
-    const pixelWidth = Math.max(1, Math.floor(cssWidth * pxScaleX));
-    const pixelHeight = Math.max(1, Math.floor(cssHeight * pxScaleY));
-    const pixelY = Math.max(0, cvs.height - (pixelTop + pixelHeight));
-
-    const pixels = new Uint8Array(pixelWidth * pixelHeight * 4);
-    gl.readPixels(pixelX, pixelY, pixelWidth, pixelHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-
-    return {
-        cssX,
-        cssY,
-        cssWidth,
-        cssHeight,
-        pixels,
-        pixelWidth,
-        pixelHeight,
-        pixelX,
-        pixelY
-    };
-}
-
-function restoreFromTileCache(cache: StrokeTileCache): boolean {
-    if (cache.canvasWidth !== cvs.width || cache.canvasHeight !== cvs.height) {
-        return false;
-    }
-    if (cache.tiles.size === 0 || tileRestoreVbo == null) {
-        return false;
-    }
-
-    const wasBlendEnabled = gl.isEnabled(gl.BLEND);
-    gl.disable(gl.BLEND);
-    gl.viewport(0, 0, cvs.width, cvs.height);
-    gl.useProgram(tileRestoreProgram);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, tileRestoreVbo);
-    const posLoc = gl.getAttribLocation(tileRestoreProgram, 'a_pos');
-    const uvLoc = gl.getAttribLocation(tileRestoreProgram, 'a_uv');
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(uvLoc);
-    gl.vertexAttribPointer(uvLoc, 2, gl.FLOAT, false, 16, 8);
-
-    const tex = gl.createTexture();
-    if (tex == null) {
-        if (wasBlendEnabled) {
-            gl.enable(gl.BLEND);
-        }
-        return false;
-    }
-
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    const uTex = gl.getUniformLocation(tileRestoreProgram, 'u_tex');
-    gl.uniform1i(uTex, 0);
-
-    for (const tile of cache.tiles.values()) {
-        const x0 = (tile.cssX / cvs.clientWidth) * 2 - 1;
-        const x1 = ((tile.cssX + tile.cssWidth) / cvs.clientWidth) * 2 - 1;
-        const y0 = -((tile.cssY + tile.cssHeight) / cvs.clientHeight) * 2 + 1;
-        const y1 = -(tile.cssY / cvs.clientHeight) * 2 + 1;
-
-        const vertices = new Float32Array([
-            x0, y0, 0, 0,
-            x1, y0, 1, 0,
-            x0, y1, 0, 1,
-            x0, y1, 0, 1,
-            x1, y0, 1, 0,
-            x1, y1, 1, 1
-        ]);
-
-        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STREAM_DRAW);
-        gl.texImage2D(
-            gl.TEXTURE_2D,
-            0,
-            gl.RGBA,
-            tile.pixelWidth,
-            tile.pixelHeight,
-            0,
-            gl.RGBA,
-            gl.UNSIGNED_BYTE,
-            tile.pixels
-        );
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-    }
-
-    gl.deleteTexture(tex);
-    if (wasBlendEnabled) {
-        gl.enable(gl.BLEND);
-    }
-    return true;
 }
 
 function drawSegment(prevPoint: { x: number; y: number; p: number }, currPoint: { x: number; y: number; p: number }, width: number, color: string, alpha: number) {
@@ -809,8 +611,7 @@ async function restoreDraft() {
         }
 
         strokes = draft.strokes;
-        strokeTileCaches = new Array(strokes.length).fill(null);
-        currentStrokeTileCache = null;
+        tileCacheManager.resetHistory(strokes.length);
         replayStrokes(strokes);
         console.log(`Restored ${strokes.length} stroke(s) from draft.`);
     } catch (error) {
@@ -894,8 +695,7 @@ async function persistAndRestoreAfterResize() {
         const snapshot = buildStrokeSnapshot(false);
         if (snapshot.length === 0) {
             resizeCanvas();
-            strokeTileCaches = [];
-            currentStrokeTileCache = null;
+            tileCacheManager.clearAll();
             return;
         }
 
