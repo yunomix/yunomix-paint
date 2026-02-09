@@ -1,11 +1,11 @@
-﻿import Graphics from './graphics.js';
-import { BrushManager } from './brush.js';
-import AlcoholMarkerBrush from './brushes/alcoholMarker.js';
+﻿import Graphics from './Graphics.js';
+import { BrushManager } from './Brush.js';
+import AlcoholMarkerBrush from './brushes/AlcoholMarker.js';
 import WatercolorBrush from './brushes/watercolor.js';
-import Pen from './brushes/pen.js';
-import Eraser from './brushes/eraser.js';
-import { StrokeLog, InkDB } from './db.js';
-import { debounce, makeUUID } from './util.js';
+import Pen from './brushes/Pen.js';
+import Eraser from './brushes/Eraser.js';
+import { StrokeLog, InkDB } from './DB.js';
+import { debounce, makeUUID } from './Util.js';
 
 /** @type {HTMLCanvasElement} */
 const cvs = document.getElementById('c') as HTMLCanvasElement;
@@ -15,6 +15,7 @@ const gl = cvs.getContext('webgl2', { preserveDrawingBuffer: true }) as WebGL2Re
 /** 描画ログを後で IndexedDB に保存するためのバッファ */
 let currentStrokeLog: StrokeLog | null = null;
 let strokes: StrokeLog[] = []; // 全体のストローク履歴
+let saveInFlight: Promise<void> | null = null;
 
 
 let selectedColor = "";
@@ -150,7 +151,7 @@ function draw(e: PointerEvent) {
     const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
 
     for (const ev of list) {
-        addSample(e, currentStrokeLog);
+        addSample(ev, currentStrokeLog);
     }
 
     screenDirty = true;
@@ -347,6 +348,8 @@ document.addEventListener('keydown', (e) => {
 
 // 初期ブラシを選択
 brushManager.useBrush('Pen');
+await restoreDraft();
+brushManager.useBrush('Pen');
 
 const pp = graphics.createPingPong(gl, cvs.width, cvs.height); // 笘・蝗槭□縺・
 
@@ -456,20 +459,115 @@ function runCompositePass() {
 
 }
 
-async function saveDraft() {
-    console.log('Saving draft...');
-    const db = await InkDB.get();
+function drawSegment(prevPoint: { x: number; y: number; p: number }, currPoint: { x: number; y: number; p: number }, width: number, color: string, alpha: number) {
+    const [r, g, b] = hexToRgb01(color);
+    const lineWidthPrev = width * prevPoint.p;
+    const lineWidthCurr = width * currPoint.p;
+    const alphaPrev = lineWidthPrev < 1.0 ? lineWidthPrev : 1.0;
+    const alphaCurr = lineWidthCurr < 1.0 ? lineWidthCurr : 1.0;
 
-    // ストロークログを保存
-    await db.saveDraft({
-        strokes: [],                  // ストロークログの配列
-        pngBlob: new Blob(),          // PNG の Blob
-        updated: Date.now()
+    const top = new Float32Array([prevPoint.x, prevPoint.y]);
+    const bottom = new Float32Array([currPoint.x, currPoint.y]);
+    const positionBuffer = graphics.updateQuadTrapezoid(cvs, top, bottom, lineWidthPrev, lineWidthCurr, alphaPrev, alphaCurr, r, g, b, alpha);
+
+    brushManager.getCurrentBrush()?.uploadData(positionBuffer);
+    brushManager.getCurrentBrush()?.draw();
+}
+
+function replayStrokes(snapshot: StrokeLog[]) {
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    for (const stroke of snapshot) {
+        if (!stroke.points || stroke.points.length < 2) {
+            continue;
+        }
+
+        try {
+            brushManager.useBrush(stroke.tool);
+        } catch (error) {
+            console.warn(`Unknown brush '${stroke.tool}', fallback to Pen.`, error);
+            brushManager.useBrush('Pen');
+        }
+
+        brushManager.getCurrentBrush()?.use();
+        graphics.reset();
+
+        for (let i = 1; i < stroke.points.length; i++) {
+            drawSegment(stroke.points[i - 1], stroke.points[i], stroke.width, stroke.color, stroke.alpha);
+        }
+    }
+
+    graphics.disable();
+    screenDirty = false;
+}
+
+async function restoreDraft() {
+    try {
+        const db = await InkDB.get();
+        const draft = await db.loadDraft();
+        if (!draft || !Array.isArray(draft.strokes) || draft.strokes.length === 0) {
+            return;
+        }
+
+        strokes = draft.strokes;
+        replayStrokes(strokes);
+        console.log(`Restored ${strokes.length} stroke(s) from draft.`);
+    } catch (error) {
+        console.error('Failed to restore draft.', error);
+    }
+}
+
+function getCanvasPngBlob(): Promise<Blob> {
+    return new Promise(resolve => {
+        if (!cvs.toBlob) {
+            resolve(new Blob());
+            return;
+        }
+        cvs.toBlob(blob => resolve(blob ?? new Blob()), 'image/png');
     });
+}
+
+async function saveDraft(): Promise<void> {
+    if (saveInFlight) {
+        return saveInFlight;
+    }
+
+    saveInFlight = (async () => {
+        try {
+            const db = await InkDB.get();
+            const pngBlob = await getCanvasPngBlob();
+
+            await db.saveDraft({
+                strokes: [...strokes],
+                pngBlob,
+                updated: Date.now()
+            });
+        } finally {
+            saveInFlight = null;
+        }
+    })();
+
+    return saveInFlight;
 }
 
 /** 保存関数は 1.5 秒ごとにデバウンスして自動保存 */
 const autoSaveDraft = debounce(() => saveDraft(), 1500);
+
+function flushDraftSave() {
+    if (strokes.length === 0) {
+        return;
+    }
+    void saveDraft();
+}
+
+window.addEventListener('pagehide', flushDraftSave);
+window.addEventListener('beforeunload', flushDraftSave);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+        flushDraftSave();
+    }
+});
 
 
 

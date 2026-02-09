@@ -1,4 +1,4 @@
-﻿import { Point, StrokeLog } from './db';
+﻿import { Point, StrokeLog } from './DB';
 
 // ---- 再生用インターフェイス ----
 export interface StrokeRenderer {

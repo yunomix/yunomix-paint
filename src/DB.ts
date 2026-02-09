@@ -63,9 +63,13 @@ export class InkDB {
 
     /** 下書きを保存（上書き）*/
     async saveDraft(data: DraftPayload, key = 'draft'): Promise<void> {
-        const tx = this.db.transaction(InkDB.STORE, 'readwrite');
-        tx.objectStore(InkDB.STORE).put(data, key);
-        await tx.oncomplete;
+        await new Promise<void>((resolve, reject) => {
+            const tx = this.db.transaction(InkDB.STORE, 'readwrite');
+            tx.objectStore(InkDB.STORE).put(data, key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error ?? new Error('Failed to save draft'));
+            tx.onabort = () => reject(tx.error ?? new Error('Draft save transaction aborted'));
+        });
     }
 
     /** 下書きを読み込む。存在しなければ null */

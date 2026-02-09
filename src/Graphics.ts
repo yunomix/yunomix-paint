@@ -1,4 +1,4 @@
-﻿import { compileShader, linkProgram } from './util.js';
+﻿import { compileShader, linkProgram } from './Util.js';
 
 export default class Graphics {
     private gl: WebGL2RenderingContext;
