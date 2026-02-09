@@ -16,6 +16,8 @@ const gl = cvs.getContext('webgl2', { preserveDrawingBuffer: true }) as WebGL2Re
 let currentStrokeLog: StrokeLog | null = null;
 let strokes: StrokeLog[] = []; // 全体のストローク履歴
 let saveInFlight: Promise<void> | null = null;
+let resizeRestoreInFlight = false;
+let resizeRestorePending = false;
 
 
 let selectedColor = "";
@@ -38,7 +40,6 @@ function resizeCanvas() {
 }
 
 resizeCanvas();
-addEventListener('resize', resizeCanvas);   // ウィンドウのリサイズにも対応
 
 // 逕ｻ髱｢繧ｯ繝ｪ繧｢
 gl.clearColor(1, 1, 1, 1); // 閭梧勹縺ｯ逋ｽ
@@ -127,17 +128,29 @@ if ('onpointerrawupdate' in window) {
 
 ['pointerup', 'pointercancel', 'lostpointercapture', 'pointerout']
     .forEach(ev => cvs.addEventListener(ev, () => {
-        drawing = false;
-        graphics.reset();  // 台形ノーマルをリセット
-
-        if (currentStrokeLog != null) {
-            strokes.push(currentStrokeLog);        // 全体ログに追加
-            currentStrokeLog = null;
+        const committed = finalizeCurrentStroke();
+        if (committed) {
             autoSaveDraft(); // 自動保存
         }
     }));
 
 let lastEvt: PointerEvent | null = null;
+
+function finalizeCurrentStroke(): boolean {
+    drawing = false;
+    graphics.reset();  // 台形ノーマルをリセット
+    queue.length = 0;
+    pts.length = 0;
+    prev = null;
+    lastEvt = null;
+
+    if (currentStrokeLog != null) {
+        strokes.push(currentStrokeLog);        // 全体ログに追加
+        currentStrokeLog = null;
+        return true;
+    }
+    return false;
+}
 
 function draw(e: PointerEvent) {
     if (!drawing) return;                        // buttons では判定できない
@@ -528,7 +541,22 @@ function getCanvasPngBlob(): Promise<Blob> {
     });
 }
 
-async function saveDraft(): Promise<void> {
+function cloneStrokeLog(source: StrokeLog): StrokeLog {
+    return {
+        ...source,
+        points: source.points.map(point => ({ ...point }))
+    };
+}
+
+function buildStrokeSnapshot(includeCurrent = false): StrokeLog[] {
+    const snapshot = strokes.map(cloneStrokeLog);
+    if (includeCurrent && currentStrokeLog != null && currentStrokeLog.points.length > 0) {
+        snapshot.push(cloneStrokeLog(currentStrokeLog));
+    }
+    return snapshot;
+}
+
+async function saveDraft(snapshot?: StrokeLog[]): Promise<void> {
     if (saveInFlight) {
         return saveInFlight;
     }
@@ -537,9 +565,10 @@ async function saveDraft(): Promise<void> {
         try {
             const db = await InkDB.get();
             const pngBlob = await getCanvasPngBlob();
+            const snapshotToSave = snapshot ?? buildStrokeSnapshot(true);
 
             await db.saveDraft({
-                strokes: [...strokes],
+                strokes: snapshotToSave,
                 pngBlob,
                 updated: Date.now()
             });
@@ -555,11 +584,61 @@ async function saveDraft(): Promise<void> {
 const autoSaveDraft = debounce(() => saveDraft(), 1500);
 
 function flushDraftSave() {
-    if (strokes.length === 0) {
+    if (strokes.length === 0 && currentStrokeLog == null) {
         return;
     }
     void saveDraft();
 }
+
+async function persistAndRestoreAfterResize() {
+    if (resizeRestoreInFlight) {
+        resizeRestorePending = true;
+        return;
+    }
+
+    resizeRestoreInFlight = true;
+    try {
+        const activeBrushName = brushManager.getCurrentBrush()?.name ?? 'Pen';
+
+        // 描画中ストロークも保存対象に含めるため、ここで確定させる
+        if (currentStrokeLog != null) {
+            finalizeCurrentStroke();
+        }
+        const snapshot = buildStrokeSnapshot(false);
+        if (snapshot.length === 0) {
+            resizeCanvas();
+            return;
+        }
+
+        if (saveInFlight) {
+            await saveInFlight;
+        }
+        await saveDraft(snapshot);
+        resizeCanvas();
+        await restoreDraft();
+
+        try {
+            brushManager.useBrush(activeBrushName);
+        } catch (error) {
+            console.warn(`Brush restore failed for '${activeBrushName}', fallback to Pen.`, error);
+            brushManager.useBrush('Pen');
+        }
+    } catch (error) {
+        console.error('Failed to persist/restore on resize.', error);
+    } finally {
+        resizeRestoreInFlight = false;
+        if (resizeRestorePending) {
+            resizeRestorePending = false;
+            void persistAndRestoreAfterResize();
+        }
+    }
+}
+
+const onWindowResize = debounce(() => {
+    void persistAndRestoreAfterResize();
+}, 180);
+
+window.addEventListener('resize', onWindowResize);
 
 window.addEventListener('pagehide', flushDraftSave);
 window.addEventListener('beforeunload', flushDraftSave);
